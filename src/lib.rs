@@ -348,6 +348,8 @@ fn skip_empty_lines(bytes: &mut Bytes) -> Result<()> {
 /// See `Request` docs for explanation of optional values.
 #[derive(Debug, PartialEq)]
 pub struct Response<'headers, 'buf: 'headers> {
+    /// Indicates if the response if a ICY response
+    pub icy: Option<bool>,
     /// The response version, such as `HTTP/1.1`.
     pub version: Option<u8>,
     /// The response code, such as `200`.
@@ -363,6 +365,7 @@ impl<'h, 'b> Response<'h, 'b> {
     #[inline]
     pub fn new(headers: &'h mut [Header<'b>]) -> Response<'h, 'b> {
         Response {
+            icy: None,
             version: None,
             code: None,
             reason: None,
@@ -376,7 +379,11 @@ impl<'h, 'b> Response<'h, 'b> {
         let mut bytes = Bytes::new(buf);
 
         complete!(skip_empty_lines(&mut bytes));
-        self.version = Some(complete!(parse_version(&mut bytes)));
+        self.icy = Some(complete!(parse_icy(&mut bytes)));
+
+        if ! self.icy.unwrap() {
+            self.version = Some(complete!(parse_version(&mut bytes)));
+        }
         space!(bytes or Error::Version);
         self.code = Some(complete!(parse_code(&mut bytes)));
 
@@ -432,6 +439,18 @@ pub struct Header<'a> {
 /// let headers = [httparse::EMPTY_HEADER; 64];
 /// ```
 pub const EMPTY_HEADER: Header<'static> = Header { name: "", value: b"" };
+
+#[inline]
+fn parse_icy(bytes: &mut Bytes) -> Result<bool> {
+    // Peek
+    expect!(bytes.peek().unwrap() => b'I' |? Ok(Status::Complete(false)));
+
+    // Actual matching
+    expect!(next!(bytes) => b'I' |? Ok(Status::Complete(false)));
+    expect!(next!(bytes) => b'C' |? Ok(Status::Complete(false)));
+    expect!(next!(bytes) => b'Y' |? Ok(Status::Complete(false)));
+    Ok(Status::Complete(true))
+}
 
 #[inline]
 fn parse_version(bytes: &mut Bytes) -> Result<u8> {
